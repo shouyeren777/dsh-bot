@@ -1,0 +1,57 @@
+name: triage
+
+# Automatic triage for issues opened by anyone.
+#
+# The privilege split is the point: this workflow gets `contents: read` only, so
+# no amount of prompt injection can make it push code. It can label and comment,
+# nothing else.
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    # Skip bots so machine-filed issues don't loop.
+    if: github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dsh
+        run: npm install --global @deepseek-ai/dsh@0.2.1-rc.3
+
+      - name: Triage the issue
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO_FULL: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: bash scripts/run-triage.sh
+
+      - name: Upload run log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: triage-log-${{ github.run_id }}
+          path: /tmp/triage.log
+          if-no-files-found: ignore
+          retention-days: 7
